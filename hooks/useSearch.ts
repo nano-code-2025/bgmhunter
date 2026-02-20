@@ -1,15 +1,28 @@
+/**
+ * useSearch V2 — search and refresh hook wired to the V2 orchestrator.
+ *
+ * Simplified flow:
+ * 1. Extract intent (AI for scripts, tag mapping for keywords).
+ * 2. Delegate to orchestratedSearch (which handles multi-query, multi-provider,
+ *    ranking, diversity, and session memory internally).
+ * 3. Refresh = re-run orchestrator with incremented exploration seed.
+ */
 import { useState, useCallback } from 'react';
 import { AnalysisResult, MusicTrack, Mood, MusicTags, UserPreferences } from '../types';
 import { TAG_GROUPS } from '../constants';
 import { analyzeInput } from '../services/deepseekService';
 import { mapTagsWithAI, mergePreferences } from '../services/tagMappingService';
 import { orchestratedSearch } from '../services/searchOrchestrator';
+import { extractImplicitPreferences } from '../services/implicitPreferences';
+import { sessionMemory } from '../services/sessionMemory';
 
 export interface SearchData {
   text: string;
   selectedTags: string[];
   mode: 'script' | 'keyword';
 }
+
+// ─── Tag classification helpers ─────────────────────────────────────
 
 function classifySelectedTags(selectedTags: string[]) {
   return {
@@ -27,45 +40,12 @@ function classifySelectedTags(selectedTags: string[]) {
   };
 }
 
-function isMoodTag(tag: string): boolean {
-  const moodTags = TAG_GROUPS.find((g) => g.category === 'mood')?.tags || [];
-  const lowerTag = tag.toLowerCase();
-  return (
-    moodTags.some((t) => t.toLowerCase() === lowerTag) ||
-    [
-      'happy', 'sad', 'peaceful', 'energetic', 'calm', 'uplifting', 'relaxing',
-      'exciting', 'romantic', 'melancholic', 'joyful', 'serene', 'intense',
-    ].includes(lowerTag)
-  );
-}
-
-function getRandomTags(
-  originalTags: string[],
-  allAvailableTags: string[],
-  count: number,
-  excludeUsed: Set<string>
-): string[] {
-  const available = allAvailableTags.filter(
-    (tag) => !originalTags.includes(tag) && !excludeUsed.has(tag.toLowerCase())
-  );
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
-}
-
-const ALL_GENRES = [
-  'rock', 'electronic', 'jazz', 'classical', 'pop', 'hiphop', 'folk', 'blues',
-  'reggae', 'metal', 'country', 'latin', 'world', 'ambient', 'chillhop', 'lofi',
-];
-const ALL_INSTRUMENTS = [
-  'piano', 'guitar', 'strings', 'drums', 'bass', 'synthesizer', 'saxophone',
-  'violin', 'cello', 'flute', 'trumpet', 'organ',
-];
-
-/** Build a free-text fallback from MusicTags for providers without tag support. */
 function tagsToText(tags: MusicTags): string {
   const { genres = [], instruments = [], vartags = [] } = tags;
   return [...genres, ...instruments, ...vartags].join(' ');
 }
+
+// ─── Hook ───────────────────────────────────────────────────────────
 
 export function useSearch(userPreferences: UserPreferences) {
   const [isLoading, setIsLoading] = useState(false);
@@ -73,8 +53,9 @@ export function useSearch(userPreferences: UserPreferences) {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [mood, setMood] = useState<Mood>('Neutral');
   const [lastSearchData, setLastSearchData] = useState<SearchData | null>(null);
-  const [recommendedTrackIds, setRecommendedTrackIds] = useState<Set<string>>(new Set());
+  const [lastCoreTags, setLastCoreTags] = useState<MusicTags | null>(null);
 
+  /** Main search: extract intent → orchestrated search. */
   const search = useCallback(
     async (data: SearchData) => {
       setIsLoading(true);
@@ -83,6 +64,7 @@ export function useSearch(userPreferences: UserPreferences) {
         let tags: MusicTags;
         let analysisResult: AnalysisResult;
 
+        // ── Intent extraction ─────────────────────────────────────
         if (data.mode === 'keyword') {
           const classified = classifySelectedTags(data.selectedTags);
           if (data.text.trim()) {
@@ -132,16 +114,22 @@ export function useSearch(userPreferences: UserPreferences) {
         }
 
         setAnalysis(analysisResult);
+        setLastCoreTags(tags);
 
-        // ── Orchestrated multi-provider search ────────────────────────
+        // ── V2 Orchestrated multi-provider search ─────────────────
+        const implicitPrefs = extractImplicitPreferences();
+
         const foundTracks = await orchestratedSearch(
           { text: tagsToText(tags), tags, limit: 15 },
-          { mergedLimit: 20, filterPlayable: true }
+          {
+            mergedLimit: 20,
+            filterPlayable: true,
+            mode: data.mode,
+            explicitPreferences: userPreferences,
+            implicitPreferences: implicitPrefs,
+          }
         );
 
-        if (foundTracks.length > 0) {
-          setRecommendedTrackIds(new Set(foundTracks.map((t) => t.id)));
-        }
         setTracks(foundTracks);
       } catch (error) {
         console.error('Analysis/Search error:', error);
@@ -152,91 +140,77 @@ export function useSearch(userPreferences: UserPreferences) {
     [userPreferences]
   );
 
+  /**
+   * Refresh V2: re-run orchestrator with incremented exploration seed.
+   * The query generator will produce new variants, and session memory
+   * penalises previously shown tracks — no random tag mutation needed.
+   */
   const refresh = useCallback(async () => {
-    if (!lastSearchData) return;
+    if (!lastSearchData || !lastCoreTags) return;
     setIsLoading(true);
     try {
-      let originalTags: MusicTags = { genres: [], instruments: [], vartags: [] };
+      const implicitPrefs = extractImplicitPreferences();
+      const seed = sessionMemory.nextRefreshSeed();
 
-      if (lastSearchData.mode === 'keyword') {
-        const classified = classifySelectedTags(lastSearchData.selectedTags);
-        originalTags = await mapTagsWithAI(classified, userPreferences);
-      } else {
-        if (analysis?.tags) {
-          originalTags = analysis.tags;
-        } else {
-          const result = await analyzeInput(
-            lastSearchData.text,
-            'script',
-            userPreferences,
-            lastSearchData.selectedTags
-          );
-          originalTags = result.tags || { genres: [], instruments: [], vartags: [] };
-        }
-      }
-
-      // Keep mood tags, randomize genres and instruments
-      const moodTags = (originalTags.vartags || []).filter((tag) => isMoodTag(tag));
-      if (moodTags.length === 0 && originalTags.vartags && originalTags.vartags.length > 0) {
-        moodTags.push(...originalTags.vartags);
-      }
-
-      const excludeUsed = new Set([
-        ...(originalTags.genres || []).map((g) => g.toLowerCase()),
-        ...(originalTags.instruments || []).map((i) => i.toLowerCase()),
-      ]);
-
-      const newGenres = getRandomTags(
-        originalTags.genres || [],
-        ALL_GENRES,
-        Math.max(2, Math.floor(Math.random() * 3) + 1),
-        excludeUsed
-      );
-
-      const newInstruments = getRandomTags(
-        originalTags.instruments || [],
-        ALL_INSTRUMENTS,
-        Math.max(1, Math.floor(Math.random() * 2) + 1),
-        excludeUsed
-      );
-
-      const newTags = mergePreferences(
+      // First attempt: standard orchestrated search with new seed
+      let foundTracks = await orchestratedSearch(
+        { text: tagsToText(lastCoreTags), tags: lastCoreTags, limit: 15 },
         {
-          genres: newGenres.length > 0 ? newGenres : (originalTags.genres || []).slice(0, 1),
-          instruments: newInstruments.length > 0 ? newInstruments : (originalTags.instruments || []).slice(0, 1),
-          vartags: moodTags.length > 0 ? moodTags : originalTags.vartags || [],
-        },
-        userPreferences
-      );
-
-      // ── Orchestrated refresh ──────────────────────────────────────
-      const foundTracks = await orchestratedSearch(
-        { text: tagsToText(newTags), tags: newTags, limit: 15 },
-        { mergedLimit: 20, filterPlayable: true }
-      );
-
-      const newTracks = foundTracks.filter((track) => !recommendedTrackIds.has(track.id));
-
-      if (newTracks.length > 0) {
-        setRecommendedTrackIds(new Set([...recommendedTrackIds, ...newTracks.map((t) => t.id)]));
-        setTracks(newTracks.slice(0, 10));
-      } else {
-        setRecommendedTrackIds(new Set());
-        const allTracks = await orchestratedSearch(
-          { text: tagsToText(newTags), tags: newTags, limit: 15 },
-          { mergedLimit: 10, filterPlayable: true }
-        );
-        setTracks(allTracks);
-        if (allTracks.length > 0) {
-          setRecommendedTrackIds(new Set(allTracks.map((t) => t.id)));
+          mergedLimit: 20,
+          filterPlayable: true,
+          mode: lastSearchData.mode,
+          explicitPreferences: userPreferences,
+          implicitPreferences: implicitPrefs,
         }
+      );
+
+      // Check novelty: at least 60% should be tracks not in current list
+      const currentIds = new Set(tracks.map((t) => t.id));
+      const novelTracks = foundTracks.filter((t) => !currentIds.has(t.id));
+      const noveltyRatio = foundTracks.length > 0
+        ? novelTracks.length / foundTracks.length
+        : 0;
+
+      if (noveltyRatio < 0.6 && foundTracks.length > 0) {
+        // Retry with broader tags: drop specific genres, keep mood/vartags
+        console.log(`[useSearch] Low novelty (${(noveltyRatio * 100).toFixed(0)}%), broadening query…`);
+        const broaderTags: MusicTags = {
+          genres: [], // Drop genre constraints entirely
+          instruments: lastCoreTags.instruments || [],
+          vartags: lastCoreTags.vartags || [],
+        };
+
+        const broaderResults = await orchestratedSearch(
+          { text: tagsToText(broaderTags), tags: broaderTags, limit: 15 },
+          {
+            mergedLimit: 20,
+            filterPlayable: true,
+            mode: lastSearchData.mode,
+            explicitPreferences: userPreferences,
+            implicitPreferences: implicitPrefs,
+          }
+        );
+
+        // Merge: prefer novel tracks from both attempts
+        const allCandidates = [...novelTracks, ...broaderResults.filter((t) => !currentIds.has(t.id))];
+        const seen = new Set<string>();
+        const merged: MusicTrack[] = [];
+        for (const t of allCandidates) {
+          if (!seen.has(t.id)) {
+            seen.add(t.id);
+            merged.push(t);
+          }
+        }
+        foundTracks = merged.length > 0 ? merged.slice(0, 10) : foundTracks;
       }
+
+      setTracks(foundTracks);
     } catch (error) {
       console.error('Refresh search error:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [lastSearchData, analysis, userPreferences, recommendedTrackIds]);
+  }, [lastSearchData, lastCoreTags, userPreferences, tracks]);
 
   return { isLoading, tracks, setTracks, analysis, mood, search, refresh };
 }

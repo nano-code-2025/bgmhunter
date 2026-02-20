@@ -10,6 +10,8 @@ export interface MusicTags {
 
 export interface AnalysisResult {
   contentType: string;
+  /** Content category for trend-aware tag biasing (vlog, education, food, etc.). */
+  contentCategory?: string;
   moods: Mood[];
   instruments: string[];
   energy: Energy;

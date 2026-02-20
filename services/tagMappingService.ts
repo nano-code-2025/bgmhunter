@@ -1,3 +1,10 @@
+/**
+ * Tag Mapping Service — converts user-selected UI tags to structured
+ * music search tags (genres, instruments, vartags).
+ *
+ * V2: Provider-agnostic. No Jamendo-specific language.
+ * Each provider's search() method handles its own API-specific conversion.
+ */
 import { MusicTags, UserPreferences } from '../types';
 import { callDeepSeek, getApiKey } from './aiService';
 import tagMapping from '../data/tag_mapping.json';
@@ -19,7 +26,7 @@ interface TagMappingData {
 
 const typedTagMapping = tagMapping as TagMappingData;
 
-// Map user-selected tags to Jamendo-compatible tags using AI
+/** Map user-selected tags to structured music tags using AI. */
 export async function mapTagsWithAI(
   userTags: UserSelectedTags,
   userPreferences?: UserPreferences
@@ -44,7 +51,7 @@ export async function mapTagsWithAI(
   }
 }
 
-// Static tag mapping fallback (no AI needed)
+/** Static tag mapping fallback (no AI needed). */
 export function mapTagsStatic(userTags: UserSelectedTags): MusicTags {
   const result: MusicTags = {
     genres: [],
@@ -56,22 +63,22 @@ export function mapTagsStatic(userTags: UserSelectedTags): MusicTags {
 
   if (userTags.genres) {
     for (const genre of userTags.genres) {
-      const jamendoGenres = mappings.genres[genre] || [genre.toLowerCase()];
-      result.genres!.push(...jamendoGenres);
+      const mapped = mappings.genres[genre] || [genre.toLowerCase()];
+      result.genres!.push(...mapped);
     }
   }
 
   if (userTags.moods) {
     for (const mood of userTags.moods) {
-      const jamendoVartags = mappings.moods[mood] || [mood.toLowerCase()];
-      result.vartags!.push(...jamendoVartags);
+      const mapped = mappings.moods[mood] || [mood.toLowerCase()];
+      result.vartags!.push(...mapped);
     }
   }
 
   if (userTags.themes) {
     for (const theme of userTags.themes) {
-      const jamendoVartags = mappings.themes[theme] || [theme.toLowerCase()];
-      result.vartags!.push(...jamendoVartags);
+      const mapped = mappings.themes[theme] || [theme.toLowerCase()];
+      result.vartags!.push(...mapped);
     }
   }
 
@@ -81,7 +88,7 @@ export function mapTagsStatic(userTags: UserSelectedTags): MusicTags {
   return result;
 }
 
-// Merge user preferences into tags
+/** Merge user preferences into tags. */
 export function mergePreferences(
   tags: MusicTags,
   preferences?: UserPreferences
@@ -99,7 +106,7 @@ function buildMappingPrompt(
   userTags: UserSelectedTags,
   userPreferences?: UserPreferences
 ): string {
-  let prompt = `Convert the following user-selected music tags into Jamendo API compatible tags.
+  return `Convert the following user-selected music tags into structured music search tags.
 
 User selected tags:
 - Genres: ${userTags.genres?.join(', ') || 'none'}
@@ -113,19 +120,17 @@ ${userPreferences ? `User preferences (apply these to enhance the mapping):
 - Preferred scenarios: ${userPreferences.vartags?.join(', ') || 'none'}
 ` : ''}
 
-Jamendo API uses three tag categories:
-1. genres: Music styles/types (e.g., "rock", "pop", "electronic", "jazz", "classical", "hiphop", "ambient", "lofi", "chillout")
-2. instruments: Musical instruments (e.g., "piano", "guitar", "strings", "synthesizer", "drums", "violin")
-3. vartags: Mood/emotion/scenario tags (e.g., "happy", "sad", "energetic", "calm", "romantic", "peaceful", "uplifting", "cinematic", "vlog", "sport", "travel")
+Map these to three categories of music search tags:
+1. genres: Music styles/types (e.g., "rock", "pop", "electronic", "jazz", "classical", "hiphop", "ambient", "lofi", "chillout", "chillhop", "downtempo", "synthwave")
+2. instruments: Musical instruments (e.g., "piano", "guitar", "strings", "synthesizer", "drums", "violin", "ukulele", "saxophone")
+3. vartags: Mood/emotion/scenario tags (e.g., "happy", "sad", "energetic", "calm", "romantic", "peaceful", "uplifting", "cinematic", "vlog", "sport", "travel", "cozy", "epic")
 
-Return a JSON object with this exact structure:
+Return a JSON object:
 {
   "genres": ["string"],
   "instruments": ["string"],
   "vartags": ["string"]
 }
 
-Map the user tags to appropriate Jamendo tags. Be specific and use actual Jamendo tag values when possible.`;
-
-  return prompt;
+Use lowercase tag values. Be specific and practical — these tags will be used as free-text search keywords across multiple music APIs.`;
 }

@@ -1,6 +1,7 @@
 /**
- * SearchOrchestrator — runs all registered MusicProviders in parallel,
- * merges results, deduplicates, and returns a unified ranked list.
+ * SearchOrchestrator V2 — runs M query variants × N providers in parallel,
+ * merges, deduplicates, scores with RankingEngine, and applies diversity
+ * constraints.
  *
  * This module is the ONLY place that touches providers. Hooks / UI import
  * this module, never individual providers directly — keeping things decoupled.
@@ -10,23 +11,35 @@ import {
   MusicProvider,
   SearchQuery,
   SearchOptions,
+  MusicTags,
+  UserPreferences,
 } from '../types';
 import { defaultProviders } from './providers';
+import {
+  scoreAndRank,
+  diversifiedSelect,
+  getWeightsForMode,
+  ScoringContext,
+  DiversityConfig,
+  RankingWeights,
+} from './rankingEngine';
+import { generateQueryVariants, QueryGeneratorInput } from './queryGenerator';
+import { sessionMemory } from './sessionMemory';
 
 // ─── Configuration ──────────────────────────────────────────────────
 
-/** Max total tracks returned after merge. */
+/** Default max tracks returned after merge + ranking. */
 const DEFAULT_MERGED_LIMIT = 20;
 
 /** Similarity threshold for title+artist dedup (0-1, 1 = exact match). */
 const DEDUP_THRESHOLD = 0.85;
 
+/** Target raw candidate pool size before scoring. */
+const TARGET_POOL_SIZE = 50;
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
-/**
- * Very lightweight string similarity (Sørensen–Dice on bigrams).
- * Returns 0-1 where 1 = identical.
- */
+/** Sørensen–Dice bigram similarity (0-1). */
 function similarity(a: string, b: string): number {
   const s1 = a.toLowerCase().trim();
   const s2 = b.toLowerCase().trim();
@@ -50,57 +63,45 @@ function similarity(a: string, b: string): number {
   return (2 * intersect) / (bg1.size + bg2.size);
 }
 
-/**
- * Deduplicate tracks by title + artist similarity.
- * When a duplicate is found, keep the one with higher popularity or the
- * one from a provider that offers full playback.
- */
+/** Deduplicate by title + artist similarity. Keep higher-quality variant. */
 function dedup(tracks: MusicTrack[]): MusicTrack[] {
   const result: MusicTrack[] = [];
 
   for (const track of tracks) {
-    const isDupe = result.some((existing) => {
+    let foundDupeIdx = -1;
+    for (let i = 0; i < result.length; i++) {
+      const existing = result[i];
       const titleSim = similarity(existing.title, track.title);
       const artistSim = similarity(existing.artist, track.artist);
-      return titleSim > DEDUP_THRESHOLD && artistSim > DEDUP_THRESHOLD;
-    });
+      if (titleSim > DEDUP_THRESHOLD && artistSim > DEDUP_THRESHOLD) {
+        foundDupeIdx = i;
+        break;
+      }
+    }
 
-    if (!isDupe) {
+    if (foundDupeIdx === -1) {
       result.push(track);
+    } else {
+      // Keep the one with better playback quality or higher popularity
+      const existing = result[foundDupeIdx];
+      const existingScore =
+        (existing.playbackType === 'full' ? 2 : existing.playbackType === 'preview-30s' ? 1 : 0) +
+        (existing.popularity ?? 0) / 100;
+      const newScore =
+        (track.playbackType === 'full' ? 2 : track.playbackType === 'preview-30s' ? 1 : 0) +
+        (track.popularity ?? 0) / 100;
+      if (newScore > existingScore) {
+        result[foundDupeIdx] = track;
+      }
     }
   }
 
   return result;
 }
 
-/**
- * Sort tracks by a composite score:
- * 1. Tracks with full playback rank higher than preview-only.
- * 2. Higher popularity → higher rank.
- * 3. Jamendo tracks that are downloadable get a small bonus.
- */
-function rankTracks(tracks: MusicTrack[]): MusicTrack[] {
-  return [...tracks].sort((a, b) => {
-    const scoreA = computeScore(a);
-    const scoreB = computeScore(b);
-    return scoreB - scoreA;
-  });
-}
-
-function computeScore(track: MusicTrack): number {
-  let score = 0;
-
-  // Playback quality bonus
-  if (track.playbackType === 'full') score += 30;
-  else if (track.playbackType === 'preview-30s') score += 15;
-
-  // Popularity (0-100)
-  score += (track.popularity ?? 50);
-
-  // Downloadable bonus
-  if (track.audiodownloadAllowed) score += 10;
-
-  return score;
+function tagsToText(tags: MusicTags): string {
+  const { genres = [], instruments = [], vartags = [] } = tags;
+  return [...genres, ...instruments, ...vartags].filter(Boolean).join(' ');
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -110,13 +111,23 @@ export interface OrchestratorOptions extends SearchOptions {
   mergedLimit?: number;
   /** Providers to use (defaults to all registered providers). */
   providers?: MusicProvider[];
-  /** Provider names to exclude from this search (e.g. ['deezer']). */
+  /** Provider names to exclude from this search. */
   excludeProviders?: string[];
+  /** Scoring mode (affects weight profile). */
+  mode?: 'script' | 'keyword';
+  /** User explicit preferences for ranking. */
+  explicitPreferences?: UserPreferences;
+  /** User implicit preferences for ranking. */
+  implicitPreferences?: UserPreferences;
+  /** Custom ranking weights (overrides mode default). */
+  weights?: RankingWeights;
+  /** Diversity config (overrides defaults). */
+  diversity?: Partial<DiversityConfig>;
 }
 
 /**
- * Run a parallel search across all (or selected) providers,
- * merge, deduplicate, rank, and return up to `mergedLimit` tracks.
+ * V2: Generate query variants, run M queries × N providers in parallel,
+ * merge, dedup, score, diversify, and return top K.
  */
 export async function orchestratedSearch(
   query: SearchQuery,
@@ -127,9 +138,13 @@ export async function orchestratedSearch(
     providers = defaultProviders,
     excludeProviders = [],
     filterPlayable = true,
+    mode = 'keyword',
+    explicitPreferences,
+    implicitPreferences,
+    weights,
+    diversity,
   } = options;
 
-  // Filter out excluded providers
   const activeProviders = providers.filter(
     (p) => !excludeProviders.includes(p.name)
   );
@@ -139,43 +154,104 @@ export async function orchestratedSearch(
     return [];
   }
 
-  // Per-provider limit: request enough so the merged pool is rich
+  // ── Step 1: Generate query variants ─────────────────────────────
+  const coreTags: MusicTags = query.tags || {
+    genres: [],
+    instruments: [],
+    vartags: [],
+  };
+
+  const generatorInput: QueryGeneratorInput = {
+    coreTags,
+    mode,
+    text: query.text,
+    explicitPreferences,
+    implicitPreferences,
+    explorationSeed: Math.floor(Math.random() * 1000),
+  };
+
+  let queryVariants: SearchQuery[];
+  try {
+    queryVariants = await generateQueryVariants(generatorInput);
+  } catch (error) {
+    console.warn('[Orchestrator] Query variant generation failed, using single query:', error);
+    queryVariants = [query];
+  }
+
+  console.log(
+    `[Orchestrator] ${queryVariants.length} query variants × ${activeProviders.length} providers`
+  );
+
+  // ── Step 2: Parallel M × N fetch ───────────────────────────────
   const perProviderLimit = Math.max(
     query.limit ?? 15,
-    Math.ceil(mergedLimit / activeProviders.length) + 5
+    Math.ceil(TARGET_POOL_SIZE / (activeProviders.length * queryVariants.length)) + 3
   );
 
-  const providerQuery: SearchQuery = { ...query, limit: perProviderLimit };
   const searchOptions: SearchOptions = { filterPlayable };
+  const fetchPromises: Promise<MusicTrack[]>[] = [];
 
-  // ── Parallel search ───────────────────────────────────────────────
-  const settled = await Promise.allSettled(
-    activeProviders.map((provider) =>
-      provider.search(providerQuery, searchOptions)
-    )
-  );
+  for (const variant of queryVariants) {
+    const variantQuery: SearchQuery = { ...variant, limit: perProviderLimit };
+    for (const provider of activeProviders) {
+      fetchPromises.push(
+        provider
+          .search(variantQuery, searchOptions)
+          .then((tracks) => {
+            console.log(
+              `[Orchestrator] ${provider.name} (${variantQuery.text.slice(0, 40)}…): ${tracks.length} tracks`
+            );
+            return tracks;
+          })
+          .catch((error) => {
+            console.warn(`[Orchestrator] ${provider.name} failed:`, error);
+            return [] as MusicTrack[];
+          })
+      );
+    }
+  }
 
-  // Collect successful results, log failures
+  const results = await Promise.allSettled(fetchPromises);
+
+  // ── Step 3: Merge into candidate pool ──────────────────────────
   const allTracks: MusicTrack[] = [];
-  settled.forEach((result, i) => {
+  results.forEach((result) => {
     if (result.status === 'fulfilled') {
-      console.log(
-        `[Orchestrator] ${activeProviders[i].name}: ${result.value.length} tracks`
-      );
       allTracks.push(...result.value);
-    } else {
-      console.warn(
-        `[Orchestrator] ${activeProviders[i].name} failed:`,
-        result.reason
-      );
     }
   });
 
-  // ── Merge pipeline ────────────────────────────────────────────────
-  const unique = dedup(allTracks);
-  const ranked = rankTracks(unique);
+  console.log(`[Orchestrator] Raw pool: ${allTracks.length} tracks`);
 
-  return ranked.slice(0, mergedLimit);
+  // ── Step 4: Dedup ──────────────────────────────────────────────
+  const unique = dedup(allTracks);
+  console.log(`[Orchestrator] After dedup: ${unique.length} tracks`);
+
+  // ── Step 5: Score and rank ─────────────────────────────────────
+  const scoringCtx: ScoringContext = {
+    queryTags: coreTags,
+    explicitPreferences,
+    implicitPreferences,
+    recentlyShownIds: sessionMemory.getRecentIds(),
+    weights: weights || getWeightsForMode(mode),
+  };
+
+  const ranked = scoreAndRank(unique, scoringCtx);
+
+  // ── Step 6: Diversity-constrained selection ────────────────────
+  const diversityConfig: DiversityConfig = {
+    maxPerArtist: diversity?.maxPerArtist ?? 2,
+    minProviderMixRatio: diversity?.minProviderMixRatio ?? 0.3,
+    maxGenreRatio: diversity?.maxGenreRatio ?? 0.5,
+  };
+
+  const selected = diversifiedSelect(ranked, mergedLimit, diversityConfig);
+
+  // ── Step 7: Update session memory ──────────────────────────────
+  sessionMemory.addBatch(selected.map((t) => t.id));
+
+  console.log(`[Orchestrator] Final selection: ${selected.length} tracks`);
+  return selected;
 }
 
 /**
@@ -193,4 +269,3 @@ export async function searchSingleProvider(
   }
   return provider.search(query, options);
 }
-

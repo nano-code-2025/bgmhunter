@@ -2,8 +2,8 @@ import { useState, useCallback } from 'react';
 import { AnalysisResult, MusicTrack, Mood, MusicTags, UserPreferences } from '../types';
 import { TAG_GROUPS } from '../constants';
 import { analyzeInput } from '../services/deepseekService';
-import { searchTracks } from '../services/jamendoService';
 import { mapTagsWithAI, mergePreferences } from '../services/tagMappingService';
+import { orchestratedSearch } from '../services/searchOrchestrator';
 
 export interface SearchData {
   text: string;
@@ -60,6 +60,12 @@ const ALL_INSTRUMENTS = [
   'piano', 'guitar', 'strings', 'drums', 'bass', 'synthesizer', 'saxophone',
   'violin', 'cello', 'flute', 'trumpet', 'organ',
 ];
+
+/** Build a free-text fallback from MusicTags for providers without tag support. */
+function tagsToText(tags: MusicTags): string {
+  const { genres = [], instruments = [], vartags = [] } = tags;
+  return [...genres, ...instruments, ...vartags].join(' ');
+}
 
 export function useSearch(userPreferences: UserPreferences) {
   const [isLoading, setIsLoading] = useState(false);
@@ -127,7 +133,12 @@ export function useSearch(userPreferences: UserPreferences) {
 
         setAnalysis(analysisResult);
 
-        const foundTracks = await searchTracks(tags, 10, 'popularity_total_desc', true);
+        // ── Orchestrated multi-provider search ────────────────────────
+        const foundTracks = await orchestratedSearch(
+          { text: tagsToText(tags), tags, limit: 15 },
+          { mergedLimit: 20, filterPlayable: true }
+        );
+
         if (foundTracks.length > 0) {
           setRecommendedTrackIds(new Set(foundTracks.map((t) => t.id)));
         }
@@ -198,7 +209,12 @@ export function useSearch(userPreferences: UserPreferences) {
         userPreferences
       );
 
-      const foundTracks = await searchTracks(newTags, 20, 'popularity_total_desc', true);
+      // ── Orchestrated refresh ──────────────────────────────────────
+      const foundTracks = await orchestratedSearch(
+        { text: tagsToText(newTags), tags: newTags, limit: 15 },
+        { mergedLimit: 20, filterPlayable: true }
+      );
+
       const newTracks = foundTracks.filter((track) => !recommendedTrackIds.has(track.id));
 
       if (newTracks.length > 0) {
@@ -206,7 +222,10 @@ export function useSearch(userPreferences: UserPreferences) {
         setTracks(newTracks.slice(0, 10));
       } else {
         setRecommendedTrackIds(new Set());
-        const allTracks = await searchTracks(newTags, 10, 'popularity_total_desc', true);
+        const allTracks = await orchestratedSearch(
+          { text: tagsToText(newTags), tags: newTags, limit: 15 },
+          { mergedLimit: 10, filterPlayable: true }
+        );
         setTracks(allTracks);
         if (allTracks.length > 0) {
           setRecommendedTrackIds(new Set(allTracks.map((t) => t.id)));
@@ -221,4 +240,3 @@ export function useSearch(userPreferences: UserPreferences) {
 
   return { isLoading, tracks, setTracks, analysis, mood, search, refresh };
 }
-

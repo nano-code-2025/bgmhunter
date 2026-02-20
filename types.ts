@@ -32,6 +32,10 @@ export type SortOrder =
   | 'relevance_desc'         // Relevance descending (default)
   | 'relevance_asc';         // Relevance ascending
 
+// ─── Provider system types ──────────────────────────────────────────
+export type ProviderName = 'jamendo' | 'deezer' | 'spotify' | 'youtube-music';
+export type PlaybackType = 'full' | 'preview-30s' | 'external-only';
+
 export interface MusicTrack {
   id: string;
   title: string;
@@ -47,6 +51,28 @@ export interface MusicTrack {
   audiodownloadAllowed?: boolean;
   position?: number;         // Search result position (lower = higher rank)
   releasedate?: string;       // Release date
+  // Provider metadata (multi-source support)
+  provider?: ProviderName;
+  playbackType?: PlaybackType;
+  popularity?: number;        // Normalised 0-100 across providers
+}
+
+// ─── Unified search query for all providers ─────────────────────────
+export interface SearchQuery {
+  text: string;               // Free-text or joined tags
+  tags?: MusicTags;           // Structured tags (providers may ignore)
+  limit?: number;             // Max results per provider (default 15)
+}
+
+export interface SearchOptions {
+  filterPlayable?: boolean;   // Only return tracks with a playable audio URL
+}
+
+// ─── Provider adapter interface ─────────────────────────────────────
+export interface MusicProvider {
+  readonly name: ProviderName;
+  /** Search for tracks. Each provider maps SearchQuery to its own API. */
+  search(query: SearchQuery, options?: SearchOptions): Promise<MusicTrack[]>;
 }
 
 export interface AudioStats {

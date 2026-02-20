@@ -255,6 +255,20 @@ export const CentralPlayer: React.FC<PlayerProps> = ({
           {/* Inner Light Overlay */}
           <div className="absolute inset-0 bg-gradient-to-tr from-black/20 to-transparent pointer-events-none" />
 
+                  {/* Provider badge + playback type (top-left) */}
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
+                    {item.provider && item.provider !== 'jamendo' && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-black/55 border border-white/15 text-neutral-300 backdrop-blur-sm">
+                        {item.provider}
+                      </span>
+                    )}
+                    {item.playbackType === 'preview-30s' && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/80 text-black tracking-wider">
+                        30s
+                      </span>
+                    )}
+                  </div>
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

@@ -3,7 +3,13 @@
     "allow": [
       "Bash(wc:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npx vite build)",
+      "Bash(test:*)",
+      "Bash(npm install:*)",
+      "Bash(vercel ls:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)"
     ]
   }
 }

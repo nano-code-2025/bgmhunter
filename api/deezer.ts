@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { checkRateLimit } from '../lib/rateLimit.js';
-import { getClientIp, setCorsHeaders } from '../lib/validate.js';
+import { checkRateLimit } from './lib/rateLimit.js';
+import { getClientIp, setCorsHeaders } from './lib/validate.js';
 
 const DEEZER_API_BASE = 'https://api.deezer.com';
 
@@ -24,14 +24,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const pathSegments = req.query.path;
-  const deezerPath = Array.isArray(pathSegments)
-    ? pathSegments.join('/')
-    : pathSegments || '';
+  // Vercel rewrite: /api/deezer/search?q=jazz → /api/deezer?_deezer_path=search&q=jazz
+  const pathParam = req.query._deezer_path;
+  const deezerPath = typeof pathParam === 'string' ? pathParam : 'search';
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(req.query)) {
-    if (key === 'path') continue;
+    if (key === '_deezer_path') continue;
     if (typeof value === 'string') params.set(key, value);
   }
 

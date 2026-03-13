@@ -12,9 +12,21 @@
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vitejs.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Live Demo](https://bgmhunter.com) · [Architecture](#architecture) · [Quick Start](#quick-start)
+### [🚀 Try it live → bgmhunter.com](https://bgmhunter.com)
+
+[Architecture](#architecture) · [Quick Start](#quick-start)
 
 </div>
+
+---
+
+BGM Hunter is an AI-driven background music discovery tool for video creators. Paste your script or describe a mood, and the AI analyzes your intent — extracting emotions, energy levels, and content categories — then searches multiple music sources in parallel to find the perfect BGM.
+
+**Key differentiators:**
+- **LLM-powered semantic understanding** — not just keyword matching, but contextual analysis of scripts and moods via DeepSeek
+- **Multi-query × Multi-provider orchestration** — generates precision, recall, and exploration query variants, runs them across providers simultaneously
+- **Multi-factor ranking with diversity constraints** — scores tracks on relevance, popularity, preference fit, novelty, and quality; enforces artist/genre/provider diversity
+- **Real-time WebGL visualizers** — custom GLSL shaders (Milky Way galaxy, Aurora, Rain Glass) that react to audio frequency data
 
 ---
 
@@ -56,16 +68,6 @@ https://github.com/user-attachments/assets/eb98fb62-fbe4-4799-8e34-91eb3ffdae5f
 </div>
 
 ---
-
-## What is BGM Hunter?
-
-BGM Hunter is an AI-driven background music discovery tool for video creators. Paste your script or describe a mood, and the AI analyzes your intent — extracting emotions, energy levels, and content categories — then searches multiple music sources in parallel to find the perfect BGM.
-
-**Key differentiators:**
-- **LLM-powered semantic understanding** — not just keyword matching, but contextual analysis of scripts and moods via DeepSeek
-- **Multi-query × Multi-provider orchestration** — generates precision, recall, and exploration query variants, runs them across providers simultaneously
-- **Multi-factor ranking with diversity constraints** — scores tracks on relevance, popularity, preference fit, novelty, and quality; enforces artist/genre/provider diversity
-- **Real-time WebGL visualizers** — custom GLSL shaders (Milky Way galaxy, Aurora, Rain Glass) that react to audio frequency data
 
 ## Architecture
 

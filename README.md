@@ -1,5 +1,8 @@
 <div align="center">
 
+<!-- TODO: Replace with your project logo -->
+<img src="docs/assets/logo.png" alt="BGM Hunter Logo" width="120" />
+
 # BGM Hunter
 
 **AI-Powered Background Music Search Engine with Real-Time 3D Visualization**
@@ -12,6 +15,30 @@
 
 [Live Demo](https://bgmhunter.com) · [Architecture](#architecture) · [Quick Start](#quick-start)
 
+</div>
+
+---
+
+## Preview
+
+<!-- TODO: Replace with actual homepage screenshot (recommended: 1280×720 or 1440×900) -->
+<div align="center">
+<img src="docs/assets/screenshot-homepage.png" alt="BGM Hunter — AI-powered search homepage with 3D aurora background" width="800" />
+<p><em>Homepage — Paste your script or select mood keywords, AI analyzes your intent</em></p>
+</div>
+
+<!-- TODO: Replace with player interface screenshot -->
+<div align="center">
+<img src="docs/assets/screenshot-player.png" alt="BGM Hunter — Card carousel player with search results" width="800" />
+<p><em>Player — Card carousel with cover art, playback controls, and real-time audio visualization</em></p>
+</div>
+
+<!-- TODO: Replace with demo video (MP4 uploaded to GitHub or a YouTube/Loom link) -->
+<div align="center">
+
+https://github.com/user-attachments/assets/YOUR_VIDEO_ID_HERE
+
+<p><em>Demo — Full search-to-playback flow with AI analysis and 3D visualizer reacting to audio</em></p>
 </div>
 
 ---
@@ -139,20 +166,45 @@ User Input (script / keywords)
 ### Install & Run
 
 ```bash
-git clone https://github.com/user/bgm-hunter.git
-cd bgm-hunter
+git clone https://github.com/nano-code-2025/bgmhunter.git
+cd bgmhunter
 npm install
 
 # Copy and fill in your API key
 cp .env.example .env.local
 # Edit .env.local → set DEEPSEEK_API_KEY=your_key_here
+```
 
+There are **two ways** to run the project locally:
+
+#### Option A: `vercel dev` (recommended — full features)
+
+```bash
+npm i -g vercel    # install Vercel CLI if not already
+vercel dev         # starts Vite + serverless functions together
+```
+
+This runs **everything** including DeepSeek AI proxy and Deezer CORS proxy. All features work.
+
+#### Option B: `npm run dev` (frontend only)
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+This starts only the Vite dev server. The serverless functions in `api/` (DeepSeek proxy, Deezer proxy) will not be available. The app gracefully falls back:
 
-> **Note:** The AI-powered features (script analysis, query expansion) require a valid DeepSeek API key. Without it, the app falls back to static synonym-based search — still functional, just less intelligent.
+| Feature | `vercel dev` | `npm run dev` |
+|---------|:---:|:---:|
+| Search UI + tag selection | Yes | Yes |
+| Jamendo music search | Yes | Yes |
+| 3D visualizers (shaders) | Yes | Yes |
+| Audio playback + controls | Yes | Yes |
+| **AI script analysis** (DeepSeek) | Yes | Fallback to defaults |
+| **AI query expansion** (3 variants) | Yes | Fallback to static synonyms |
+| **Deezer** search results | Yes | Not available |
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Deploy to Vercel
 
@@ -161,7 +213,7 @@ npm i -g vercel
 vercel --prod
 ```
 
-Set `DEEPSEEK_API_KEY` in Vercel Environment Variables.
+Set `DEEPSEEK_API_KEY` in Vercel Environment Variables. All features work automatically in production.
 
 ## Project Structure
 

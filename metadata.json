@@ -1,7 +1,0 @@
-{
-  "name": "BGM Hunter Pro",
-  "description": "A Cyber-Minimalist BGM recommendation system using AI semantic analysis and real-time 3D audio visualization.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}

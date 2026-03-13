@@ -12,6 +12,7 @@ dist
 venv
 docs
 dist-ssr
+.env
 *.local
 .vercel
 client_secret_*.json

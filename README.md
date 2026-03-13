@@ -1,6 +1,5 @@
 <div align="center">
 
-<!-- TODO: Replace with your project logo -->
 <img src="docs/assets/logo.png" alt="BGM Hunter Logo" width="120" />
 
 # BGM Hunter
@@ -21,24 +20,39 @@
 
 ## Preview
 
-<!-- TODO: Replace with actual homepage screenshot (recommended: 1280×720 or 1440×900) -->
+### Homepage
+
 <div align="center">
-<img src="docs/assets/screenshot-homepage.png" alt="BGM Hunter — AI-powered search homepage with 3D aurora background" width="800" />
-<p><em>Homepage — Paste your script or select mood keywords, AI analyzes your intent</em></p>
+
+https://github.com/user-attachments/assets/df761a48-352b-4af3-8830-b2cb60bcbd98
+
+<p><em>Homepage walkthrough — Search input, AI tag extraction, and results loading</em></p>
 </div>
 
-<!-- TODO: Replace with player interface screenshot -->
+---
+
+### Player — Three Visualizer Themes
+
 <div align="center">
-<img src="docs/assets/screenshot-player.png" alt="BGM Hunter — Card carousel player with search results" width="800" />
-<p><em>Player — Card carousel with cover art, playback controls, and real-time audio visualization</em></p>
+<img src="docs/assets/screenshot-player-milkyway.png" alt="Milky Way visualizer" width="800" />
+<p><em>🌌 Milky Way — Galaxy shader with fbm star field</em></p>
 </div>
 
-<!-- TODO: Replace with demo video (MP4 uploaded to GitHub or a YouTube/Loom link) -->
+<div align="center">
+<img src="docs/assets/screenshot-player-aura.png" alt="Aurora visualizer" width="800" />
+<p><em>🌅 Aurora — Gradient aurora with meteor shower</em></p>
+</div>
+
+<div align="center">
+<img src="docs/assets/screenshot-player-rainglass.png" alt="Rain Glass visualizer" width="800" />
+<p><em>🌧️ Rain Glass — Bokeh raindrops with lightning</em></p>
+</div>
+
 <div align="center">
 
-https://github.com/user-attachments/assets/YOUR_VIDEO_ID_HERE
+https://github.com/user-attachments/assets/eb98fb62-fbe4-4799-8e34-91eb3ffdae5f
 
-<p><em>Demo — Full search-to-playback flow with AI analysis and 3D visualizer reacting to audio</em></p>
+<p><em>Player in action — Theme switching, track browsing, and visualizer reacting to audio frequency</em></p>
 </div>
 
 ---
